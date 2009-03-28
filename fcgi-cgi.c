@@ -338,6 +338,7 @@ static void fcgi_cgi_child_error(fcgi_cgi_child *cld) {
 
 static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 	int pipes_to[2] = {-1, -1}, pipes_from[2] = {-1, -1}, pipes_err[2] = {-1, -1};
+	pid_t pid;
 
 	if (-1 == pipe(pipes_to)) {
 		ERROR("couldn't create pipe: %s\n", g_strerror(errno));
@@ -354,7 +355,7 @@ static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 		goto error;
 	}
 
-	pid_t pid = fork();
+	pid = fork();
 	switch (pid) {
 	case 0: {
 		GPtrArray *enva = cld->fcon->environ;
