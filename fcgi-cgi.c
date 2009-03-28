@@ -10,9 +10,11 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <stropts.h>
+#include <sys/stat.h>
 
 #define MAX_BUFFER_SIZE (64*1024)
 
+#define CONST_STR_LEN(x) (x), sizeof(x) - 1
 #define GSTR_LEN(x) (x) ? (x)->str : "", (x) ? (x)->len : 0
 #define UNUSED(x) ((void)(x))
 
@@ -405,12 +407,54 @@ error:
 	fcgi_cgi_child_error(cld);
 }
 
+static void fcgi_cgi_direct_result(fastcgi_connection *fcon, int status) {
+	GString *s = g_string_new(0);
+	g_string_append_printf(s, "Status: %i\r\n\r\n", status);
+	fastcgi_send_out(fcon, s);
+	fastcgi_send_out(fcon, NULL);
+	fastcgi_send_err(fcon, NULL);
+	fastcgi_end_request(fcon, 0, FCGI_REQUEST_COMPLETE);
+}
+
 static void fcgi_cgi_new_request(fastcgi_connection *fcon) {
 	fcgi_cgi_child *cld = (fcgi_cgi_child*) fcon->data;
+	gchar *binpath;
+	struct stat st;
 	if (cld) return;
+
+	binpath = fastcgi_connection_environ_lookup(fcon, CONST_STR_LEN("INTERPRETER"));
+	if (!binpath) binpath = fastcgi_connection_environ_lookup(fcon, CONST_STR_LEN("SCRIPT_FILENAME"));
+
+	if (!binpath) {
+		fcgi_cgi_direct_result(fcon, 500);
+		return;
+	}
+
+	if (-1 == stat(binpath, &st)) {
+		switch (errno) {
+		case EACCES:
+		case ENOTDIR:
+			fcgi_cgi_direct_result(fcon, 403);
+			break;
+		case ENOENT:
+			fcgi_cgi_direct_result(fcon, 404);
+			break;
+		default:
+			fcgi_cgi_direct_result(fcon, 500);
+			break;
+		}
+		return;
+	}
+
+	if (!S_ISREG(st.st_mode) || !((S_IXUSR | S_IXGRP | S_IXOTH) && st.st_mode)) {
+		fcgi_cgi_direct_result(fcon, 403);
+		return;
+	}
+
 	cld = fcgi_cgi_child_create(fcon->fsrv->data, fcon);
 	fcon->data = cld;
-	fcgi_cgi_child_start(cld, "/usr/bin/php5-cgi");
+
+	fcgi_cgi_child_start(cld, binpath);
 }
 
 static void fcgi_cgi_wrote_data(fastcgi_connection *fcon) {
