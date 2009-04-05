@@ -53,7 +53,7 @@ struct fcgi_cgi_child {
 	ev_io pipe_in_watcher, pipe_out_watcher, pipe_err_watcher;
 
 	/* write queue */
-	fastcgi_gstring_queue write_queue;
+	fastcgi_queue write_queue;
 };
 
 static fcgi_cgi_child* fcgi_cgi_child_create(fcgi_cgi_server *srv, fastcgi_connection *fcon);
@@ -104,45 +104,13 @@ static void fcgi_cgi_child_child_cb(struct ev_loop *loop, ev_child *w, int reven
 }
 
 static void write_queue(fcgi_cgi_child *cld) {
-	const gssize max_rem_write = 256*1024;
-	gssize rem_write = 256*1024;
 	if (-1 == cld->pipe_out) return;
 
-	while (rem_write > 0 && cld->write_queue.length > 0) {
-		GString *s = g_queue_peek_head(&cld->write_queue.queue);
-		gssize towrite = s->len - cld->write_queue.offset, res;
-		if (towrite > max_rem_write) towrite = max_rem_write;
-		res = write(cld->pipe_out, s->str + cld->write_queue.offset, towrite);
-		if (-1 == res) {
-			switch (errno) {
-			case EINTR:
-			case EAGAIN:
-#if EWOULDBLOCK != EAGAIN
-			case EWOULDBLOCK:
-#endif
-				goto out; /* try again later */
-			case ECONNRESET:
-			case EPIPE:
-				fcgi_cgi_child_close_write(cld);
-				return;
-			default:
-				ERROR("write to fd=%d failed, %s\n", cld->pipe_out, g_strerror(errno));
-				fcgi_cgi_child_close_write(cld);
-				return;
-			}
-		} else {
-			cld->write_queue.offset += res;
-			rem_write -= res;
-			if (cld->write_queue.offset == s->len) {
-				g_queue_pop_head(&cld->write_queue.queue);
-				cld->write_queue.offset = 0;
-				cld->write_queue.length -= s->len;
-				g_string_free(s, TRUE);
-			}
-		}
+	if (fastcgi_queue_write(cld->pipe_out, &cld->write_queue, 256*1024) < 0) {
+		fcgi_cgi_child_close_write(cld);
+		return;
 	}
 
-out:
 	if (-1 != cld->pipe_out) {
 		if (cld->write_queue.length > 0) {
 			ev_io_start(cld->srv->loop, &cld->pipe_out_watcher);
@@ -296,7 +264,7 @@ static void fcgi_cgi_child_close_write(fcgi_cgi_child *cld) {
 		ev_io_stop(cld->srv->loop, &cld->pipe_out_watcher);
 		close(cld->pipe_out);
 		cld->pipe_out = -1;
-		fastcgi_gstring_queue_clear(&cld->write_queue);
+		fastcgi_queue_clear(&cld->write_queue);
 		cld->write_queue.closed = TRUE;
 		fcgi_cgi_child_check_done(cld);
 	}
@@ -418,7 +386,7 @@ static void fcgi_cgi_direct_result(fastcgi_connection *fcon, int status) {
 
 static void fcgi_cgi_new_request(fastcgi_connection *fcon) {
 	fcgi_cgi_child *cld = (fcgi_cgi_child*) fcon->data;
-	gchar *binpath;
+	const gchar *binpath;
 	struct stat st;
 	if (cld) return;
 
@@ -476,7 +444,7 @@ static void fcgi_cgi_received_stdin(fastcgi_connection *fcon, GString *data) {
 		if (data) g_string_free(data, TRUE);
 		return;
 	}
-	fastcgi_gstring_queue_append(&cld->write_queue, data);
+	fastcgi_queue_append_string(&cld->write_queue, data);
 	write_queue(cld); /* if we don't call this we have to check the write-queue length */
 }
 
@@ -524,6 +492,7 @@ static void fcgi_cgi_server_free(fcgi_cgi_server* srv) {
 	for (i = 0; i < srv->aborted_pending_childs->len; i++) {
 		fcgi_cgi_child_free(g_ptr_array_index(srv->aborted_pending_childs, i));
 	}
+	g_ptr_array_free(srv->aborted_pending_childs, TRUE);
 	fastcgi_server_free(srv->fsrv);
 	g_slice_free(fcgi_cgi_server, srv);
 }

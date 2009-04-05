@@ -56,8 +56,8 @@ typedef struct fastcgi_callbacks fastcgi_callbacks;
 struct fastcgi_connection;
 typedef struct fastcgi_connection fastcgi_connection;
 
-struct fastcgi_gstring_queue;
-typedef struct fastcgi_gstring_queue fastcgi_gstring_queue;
+struct fastcgi_queue;
+typedef struct fastcgi_queue fastcgi_queue;
 
 struct fastcgi_server {
 /* custom user data */
@@ -88,7 +88,7 @@ struct fastcgi_callbacks {
 	void (*cb_reset_connection)(fastcgi_connection *fcon); /* cleanup custom data before fcon is freed, not for keep-alive */
 };
 
-struct fastcgi_gstring_queue {
+struct fastcgi_queue {
 	GQueue queue;
 	gsize offset; /* offset in first chunk */
 	gsize length;
@@ -135,7 +135,7 @@ struct fastcgi_connection {
 	gboolean read_suspended;
 
 	/* write queue */
-	fastcgi_gstring_queue write_queue;
+	fastcgi_queue write_queue;
 };
 
 fastcgi_server *fastcgi_server_create(struct ev_loop *loop, gint socketfd, const fastcgi_callbacks *callbacks, guint max_connections);
@@ -154,7 +154,11 @@ void fastcgi_connection_close(fastcgi_connection *fcon); /* shouldn't be needed 
 void fastcgi_connection_environ_clear(fastcgi_connection *fcon);
 const gchar* fastcgi_connection_environ_lookup(fastcgi_connection *fcon, const gchar* key, gsize keylen);
 
-void fastcgi_gstring_queue_append(fastcgi_gstring_queue *queue, GString *buf);
-void fastcgi_gstring_queue_clear(fastcgi_gstring_queue *queue);
+void fastcgi_queue_append_string(fastcgi_queue *queue, GString *buf);
+void fastcgi_queue_append_bytearray(fastcgi_queue *queue, GByteArray *buf);
+void fastcgi_queue_clear(fastcgi_queue *queue);
+
+/* return values: 0 ok, -1 error, -2 con closed */
+gint fastcgi_queue_write(int fd, fastcgi_queue *queue, gsize max_write);
 
 #endif
