@@ -298,6 +298,8 @@ static GString* read_chunk(fastcgi_connection *fcon, guint maxlen) {
 
 	str = g_string_sized_new(maxlen);
 	g_string_set_size(str, maxlen);
+	if (0 == maxlen) return str;
+
 	res = read(fcon->fd, str->str, maxlen);
 	if (res == -1) {
 		tmp_errno = errno;
@@ -442,12 +444,14 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (NULL == (buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining))) goto handle_error;
 				if (buf->len >= fcon->content_remaining) {
 					fcon->padding_remaining -= buf->len - fcon->content_remaining;
+					fcon->content_remaining = 0;
 					if (0 == fcon->padding_remaining) fcon->headerbuf_used = 0;
 				} else {
 					fcon->content_remaining -= buf->len;
 				}
 				g_string_free(buf, TRUE);
 			}
+			continue;
 		}
 
 		if (fcon->first || fcon->content_remaining) {
@@ -483,7 +487,7 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (0 == fcon->current_header.requestID) goto error;
 				buf = NULL;
 				if (0 != fcon->content_remaining &&
-				    NULL == (buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining))) goto handle_error;
+				    NULL == (buf = read_chunk(fcon, fcon->content_remaining))) goto handle_error;
 				if (buf) fcon->content_remaining -= buf->len;
 				if (fcbs->cb_received_stdin) {
 					fcbs->cb_received_stdin(fcon, buf);
@@ -499,7 +503,7 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (0 == fcon->current_header.requestID) goto error;
 				buf = NULL;
 				if (0 != fcon->content_remaining &&
-				    NULL == (buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining))) goto handle_error;
+				    NULL == (buf = read_chunk(fcon, fcon->content_remaining))) goto handle_error;
 				if (buf) fcon->content_remaining -= buf->len;
 				if (fcbs->cb_received_data) {
 					fcbs->cb_received_data(fcon, buf);
@@ -528,7 +532,7 @@ static void read_queue(fastcgi_connection *fcon) {
 			if (0 == fcon->padding_remaining) {
 				fcon->headerbuf_used = 0;
 			} else {
-				if (NULL == (buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining))) goto handle_error;
+				if (NULL == (buf = read_chunk(fcon, fcon->padding_remaining))) goto handle_error;
 				fcon->padding_remaining -= buf->len;
 				if (0 == fcon->padding_remaining) {
 					fcon->headerbuf_used = 0;
