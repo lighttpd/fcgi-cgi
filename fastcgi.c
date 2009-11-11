@@ -346,8 +346,8 @@ static GByteArray *read_content(fastcgi_connection *fcon) {
 	buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining);
 	if (!buf) return NULL;
 	if (buf->len > fcon->content_remaining) {
-		g_byte_array_set_size(buf, fcon->content_remaining);
 		fcon->padding_remaining -= (buf->len - fcon->content_remaining);
+		g_byte_array_set_size(buf, fcon->content_remaining);
 		fcon->content_remaining = 0;
 	} else {
 		fcon->content_remaining -= buf->len;
