@@ -341,7 +341,7 @@ static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 		/* try changing the directory. don't care about memleaks, execve() coming soon :) */
 		{
 			char *dir = strdup(path), *sep;
-			if (NULL == (sep = strrchr(path, '/'))) {
+			if (NULL == (sep = strrchr(dir, '/'))) {
 				chdir("/");
 			} else {
 				*sep = '\0';
