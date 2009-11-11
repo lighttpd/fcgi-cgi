@@ -82,8 +82,8 @@ struct fastcgi_callbacks {
 	void (*cb_new_connection)(fastcgi_connection *fcon); /* new connection accepted */
 	void (*cb_new_request)(fastcgi_connection *fcon); /* new request on connection, env/params are ready */
 	void (*cb_wrote_data)(fastcgi_connection *fcon);
-	void (*cb_received_stdin)(fastcgi_connection *fcon, GString *data); /* data == NULL => eof */
-	void (*cb_received_data)(fastcgi_connection *fcon, GString *data); /* data == NULL => eof */
+	void (*cb_received_stdin)(fastcgi_connection *fcon, GByteArray *data); /* data == NULL => eof */
+	void (*cb_received_data)(fastcgi_connection *fcon, GByteArray *data); /* data == NULL => eof */
 	void (*cb_request_aborted)(fastcgi_connection *fcon);
 	void (*cb_reset_connection)(fastcgi_connection *fcon); /* cleanup custom data before fcon is freed, not for keep-alive */
 };
@@ -127,7 +127,7 @@ struct fastcgi_connection {
 
 	guint content_remaining, padding_remaining;
 
-	GString *buffer, *parambuf;
+	GByteArray *buffer, *parambuf;
 
 	gint fd;
 	ev_io fd_watcher;
@@ -148,6 +148,8 @@ void fastcgi_resume_read(fastcgi_connection *fcon);
 void fastcgi_end_request(fastcgi_connection *fcon, gint32 appStatus, enum FCGI_ProtocolStatus status);
 void fastcgi_send_out(fastcgi_connection *fcon, GString *data);
 void fastcgi_send_err(fastcgi_connection *fcon, GString *data);
+void fastcgi_send_out_bytearray(fastcgi_connection *fcon, GByteArray *data);
+void fastcgi_send_err_bytearray(fastcgi_connection *fcon, GByteArray *data);
 
 void fastcgi_connection_close(fastcgi_connection *fcon); /* shouldn't be needed */
 

@@ -131,32 +131,34 @@ static void write_queue(fcgi_cgi_child *cld) {
 	}
 }
 
-static GString* read_chunk(gint fd, guint maxlen) {
+static GByteArray* read_chunk(gint fd, guint maxlen) {
 	gssize res;
-	GString *str;
+	GByteArray *buf;
 	int tmp_errno;
 
-	str = g_string_sized_new(maxlen);
-	g_string_set_size(str, maxlen);
-	res = read(fd, str->str, maxlen);
+	buf = g_byte_array_sized_new(maxlen);
+	g_byte_array_set_size(buf, maxlen);
+	if (0 == maxlen) return buf;
+
+	res = read(fd, buf->data, maxlen);
 	if (res == -1) {
 		tmp_errno = errno;
-		g_string_free(str, TRUE);
+		g_byte_array_free(buf, TRUE);
 		errno = tmp_errno;
 		return NULL;
 	} else if (res == 0) {
-		g_string_free(str, TRUE);
+		g_byte_array_free(buf, TRUE);
 		errno = ECONNRESET;
 		return NULL;
 	} else {
-		g_string_set_size(str, res);
-		return str;
+		g_byte_array_set_size(buf, res);
+		return buf;
 	}
 }
 
 static void fcgi_cgi_child_pipe_in_cb(struct ev_loop *loop, ev_io *w, int revents) {
 	fcgi_cgi_child *cld = (fcgi_cgi_child*) w->data;
-	GString *buf;
+	GByteArray *buf;
 	UNUSED(loop); UNUSED(revents);
 
 	if (NULL == (buf = read_chunk(cld->pipe_in, 64*1024))) {
@@ -176,10 +178,10 @@ static void fcgi_cgi_child_pipe_in_cb(struct ev_loop *loop, ev_io *w, int revent
 			break;
 		}
 	} else if (cld->fcon) {
-		fastcgi_send_out(cld->fcon, buf);
+		fastcgi_send_out_bytearray(cld->fcon, buf);
 		fcgi_cgi_wrote_data(cld->fcon);
 	} else {
-		g_string_free(buf, TRUE);
+		g_byte_array_free(buf, TRUE);
 	}
 }
 
@@ -192,7 +194,7 @@ static void fcgi_cgi_child_pipe_out_cb(struct ev_loop *loop, ev_io *w, int reven
 
 static void fcgi_cgi_child_pipe_err_cb(struct ev_loop *loop, ev_io *w, int revents) {
 	fcgi_cgi_child *cld = (fcgi_cgi_child*) w->data;
-	GString *buf;
+	GByteArray *buf;
 	UNUSED(loop); UNUSED(revents);
 
 	if (NULL == (buf = read_chunk(cld->pipe_err, 64*1024))) {
@@ -212,10 +214,10 @@ static void fcgi_cgi_child_pipe_err_cb(struct ev_loop *loop, ev_io *w, int reven
 			break;
 		}
 	} else if (cld->fcon) {
-		fastcgi_send_err(cld->fcon, buf);
+		fastcgi_send_err_bytearray(cld->fcon, buf);
 		fcgi_cgi_wrote_data(cld->fcon);
 	} else {
-		g_string_free(buf, TRUE);
+		g_byte_array_free(buf, TRUE);
 	}
 }
 
@@ -449,14 +451,14 @@ static void fcgi_cgi_wrote_data(fastcgi_connection *fcon) {
 	}
 }
 
-static void fcgi_cgi_received_stdin(fastcgi_connection *fcon, GString *data) {
+static void fcgi_cgi_received_stdin(fastcgi_connection *fcon, GByteArray *data) {
 	fcgi_cgi_child *cld = (fcgi_cgi_child*) fcon->data;
 	/* if proc is running but pipe closed -> drop data */
 	if (!cld || cld->write_queue.closed) {
-		if (data) g_string_free(data, TRUE);
+		if (data) g_byte_array_free(data, TRUE);
 		return;
 	}
-	fastcgi_queue_append_string(&cld->write_queue, data);
+	fastcgi_queue_append_bytearray(&cld->write_queue, data);
 	write_queue(cld); /* if we don't call this we have to check the write-queue length */
 }
 

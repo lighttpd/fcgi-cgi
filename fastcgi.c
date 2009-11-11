@@ -18,7 +18,8 @@ typedef struct fastcgi_queue_link {
 } fastcgi_queue_link;
 
 /* some util functions */
-#define GSTR_LEN(x) (x) ? (x)->str : "", (x) ? (x)->len : 0
+#define GSTR_LEN(x) ((x) ? (x)->str : ""), ((x) ? (x)->len : 0)
+#define GBARR_LEN(x) ((x)->data), ((x)->len)
 #define UNUSED(x) ((void)(x))
 #define ERROR(...) g_printerr("fastcgi.c:" G_STRINGIFY(__LINE__) ": " __VA_ARGS__)
 
@@ -195,47 +196,51 @@ static void ev_io_rem_events(struct ev_loop *loop, ev_io *watcher, int events) {
 }
 /* end: some util functions */
 
-static const gchar __padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+static const guint8 __padding[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-static void append_padding(GString *s, guint8 padlen) {
-	g_string_append_len(s, __padding, padlen);
+static void append_padding_str(GString *s, guint8 padlen) {
+	g_string_append_len(s, (const gchar*) __padding, padlen);
+}
+
+static void append_padding_bytearray(GByteArray *a, guint8 padlen) {
+	g_byte_array_append(a, __padding, padlen);
 }
 
 /* returns padding length */
-static guint8 stream_build_fcgi_record(GString *buf, guint8 type, guint16 requestid, guint16 datalen) {
-	guint16 w;
+static guint8 stream_build_fcgi_record(GByteArray *buf, guint8 type, guint16 requestid, guint16 datalen) {
 	guint8 padlen = (8 - (datalen & 0x7)) % 8; /* padding must be < 8 */
 
-	g_string_set_size(buf, FCGI_HEADER_LEN);
-	g_string_truncate(buf, 0);
+	/* alloc enough space */
+	g_byte_array_set_size(buf, FCGI_HEADER_LEN);
+	buf->len = 0;
 
-	g_string_append_c(buf, FCGI_VERSION_1);
-	g_string_append_c(buf, type);
-	w = htons(requestid);
-	g_string_append_len(buf, (const gchar*) &w, sizeof(w));
-	w = htons(datalen);
-	g_string_append_len(buf, (const gchar*) &w, sizeof(w));
-	g_string_append_c(buf, padlen);
-	g_string_append_c(buf, 0);
+	buf->data[buf->len++] = FCGI_VERSION_1;
+	buf->data[buf->len++] = type;
+	buf->data[buf->len++] = (guint8) (requestid >> 8);
+	buf->data[buf->len++] = (guint8) (requestid);
+	buf->data[buf->len++] = (guint8) (datalen >> 8);
+	buf->data[buf->len++] = (guint8) (datalen);
+	buf->data[buf->len++] = padlen;
+	buf->data[buf->len++] = 0;
 	return padlen;
 }
 
 /* returns padding length */
 static guint8 stream_send_fcgi_record(fastcgi_queue *out, guint8 type, guint16 requestid, guint16 datalen) {
-	GString *record = g_string_sized_new(FCGI_HEADER_LEN);
+	GByteArray *record = g_byte_array_sized_new(FCGI_HEADER_LEN);
 	guint8 padlen = stream_build_fcgi_record(record, type, requestid, datalen);
-	fastcgi_queue_append_string(out, record);
+	fastcgi_queue_append_bytearray(out, record);
 	return padlen;
 }
 
-static void stream_send_data(fastcgi_queue *out, guint8 type, guint16 requestid, const gchar *data, size_t datalen) {
+static void stream_send_data(fastcgi_queue *out, guint8 type, guint16 requestid, const guint8 *data, size_t datalen) {
 	while (datalen > 0) {
 		guint16 tosend = (datalen > G_MAXUINT16) ? G_MAXUINT16 : datalen;
 		guint8 padlen = stream_send_fcgi_record(out, type, requestid, tosend);
-		GString *tmps = g_string_sized_new(tosend + padlen);
-		g_string_append_len(tmps, data, tosend);
-		append_padding(tmps, padlen);
-		fastcgi_queue_append_string(out, tmps);
+		GByteArray *buf = g_byte_array_sized_new(tosend + padlen);
+		g_byte_array_append(buf, data, tosend);
+		append_padding_bytearray(buf, padlen);
+		fastcgi_queue_append_bytearray(out, buf);
 		data += tosend;
 		datalen -= tosend;
 	}
@@ -244,24 +249,42 @@ static void stream_send_data(fastcgi_queue *out, guint8 type, guint16 requestid,
 /* kills string */
 static void stream_send_string(fastcgi_queue *out, guint8 type, guint16 requestid, GString *data) {
 	if (data->len > G_MAXUINT16) {
-		stream_send_data(out, type, requestid, GSTR_LEN(data));
+		stream_send_data(out, type, requestid, (const guint8*) GSTR_LEN(data));
 		g_string_free(data, TRUE);
 	} else {
 		guint8 padlen = stream_send_fcgi_record(out, type, requestid, data->len);
-		append_padding(data, padlen);
+		append_padding_str(data, padlen);
 		fastcgi_queue_append_string(out, data);
 	}
 }
 
+/* kills bytearray */
+static void stream_send_bytearray(fastcgi_queue *out, guint8 type, guint16 requestid, GByteArray *data) {
+	if (data->len > G_MAXUINT16) {
+		stream_send_data(out, type, requestid, GBARR_LEN(data));
+		g_byte_array_free(data, TRUE);
+	} else {
+		guint8 padlen = stream_send_fcgi_record(out, type, requestid, data->len);
+		append_padding_bytearray(data, padlen);
+		fastcgi_queue_append_bytearray(out, data);
+	}
+}
+
 static void stream_send_end_request(fastcgi_queue *out, guint16 requestID, gint32 appStatus, enum FCGI_ProtocolStatus status) {
-	GString *record;
-	record = g_string_sized_new(16);
+	GByteArray *record;
+
+	record = g_byte_array_sized_new(16);
 	stream_build_fcgi_record(record, FCGI_END_REQUEST, requestID, 8);
+
+	/* alloc enough space */
+	g_byte_array_set_size(record, 16);
+	record->len = 8;
+
 	appStatus = htonl(appStatus);
-	g_string_append_len(record, (const gchar*) &appStatus, sizeof(appStatus));
-	g_string_append_c(record, status);
-	g_string_append_len(record, __padding, 3);
-	fastcgi_queue_append_string(out, record);
+	g_byte_array_append(record, (const guchar*) &appStatus, sizeof(appStatus));
+	record->data[record->len++] = status;
+	g_byte_array_append(record, __padding, 3);
+	fastcgi_queue_append_bytearray(out, record);
 }
 
 
@@ -291,58 +314,79 @@ static void write_queue(fastcgi_connection *fcon) {
 	}
 }
 
-static GString* read_chunk(fastcgi_connection *fcon, guint maxlen) {
+static GByteArray* read_chunk(fastcgi_connection *fcon, guint maxlen) {
 	gssize res;
-	GString *str;
+	GByteArray *buf;
 	int tmp_errno;
 
-	str = g_string_sized_new(maxlen);
-	g_string_set_size(str, maxlen);
-	if (0 == maxlen) return str;
+	buf = g_byte_array_sized_new(maxlen);
+	g_byte_array_set_size(buf, maxlen);
+	if (0 == maxlen) return buf;
 
-	res = read(fcon->fd, str->str, maxlen);
+	res = read(fcon->fd, buf->data, maxlen);
 	if (res == -1) {
 		tmp_errno = errno;
-		g_string_free(str, TRUE);
+		g_byte_array_free(buf, TRUE);
 		errno = tmp_errno;
 		return NULL;
 	} else if (res == 0) {
-		g_string_free(str, TRUE);
+		g_byte_array_free(buf, TRUE);
 		errno = ECONNRESET;
 		return NULL;
 	} else {
-		g_string_set_size(str, res);
-		return str;
+		g_byte_array_set_size(buf, res);
+		return buf;
 	}
 }
 
-static gboolean read_append_chunk(fastcgi_connection *fcon, GString *str) {
+/* read content + padding, but only returns content data. decrements counters */
+static GByteArray *read_content(fastcgi_connection *fcon) {
+	GByteArray *buf;
+
+	buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining);
+	if (!buf) return NULL;
+	if (buf->len > fcon->content_remaining) {
+		g_byte_array_set_size(buf, fcon->content_remaining);
+		fcon->padding_remaining -= (buf->len - fcon->content_remaining);
+		fcon->content_remaining = 0;
+	} else {
+		fcon->content_remaining -= buf->len;
+	}
+	return buf;
+}
+
+static gboolean read_append_chunk(fastcgi_connection *fcon, GByteArray *buf) {
 	gssize res;
 	int tmp_errno;
-	guint curlen = str->len;
-	const guint maxlen = fcon->content_remaining;
+	guint curlen = buf->len;
+	const guint maxlen = fcon->content_remaining + fcon->padding_remaining;
 	if (0 == maxlen) return TRUE;
 
-	g_string_set_size(str, curlen + maxlen);
-	res = read(fcon->fd, str->str + curlen, maxlen);
+	g_byte_array_set_size(buf, curlen + maxlen);
+	res = read(fcon->fd, buf->data + curlen, maxlen);
 	if (res == -1) {
 		tmp_errno = errno;
-		g_string_set_size(str, curlen);
+		g_byte_array_set_size(buf, curlen);
 		errno = tmp_errno;
 		return FALSE;
 	} else if (res == 0) {
-		g_string_set_size(str, curlen);
+		g_byte_array_set_size(buf, curlen);
 		errno = ECONNRESET;
 		return FALSE;
 	} else {
-		g_string_set_size(str, curlen + res);
+		/* remove padding data */
+		if (res > fcon->content_remaining) {
+			fcon->padding_remaining -= res - fcon->content_remaining;
+			res = fcon->content_remaining;
+		}
+		g_byte_array_set_size(buf, curlen + res);
 		fcon->content_remaining -= res;
 		return TRUE;
 	}
 }
 
-static gboolean read_key_value(fastcgi_connection *fcon, GString *buf, guint *pos, gchar **key, guint *keylen, gchar **value, guint *valuelen) {
-	const unsigned char *data = (const unsigned char*) buf->str;
+static gboolean read_key_value(fastcgi_connection *fcon, GByteArray *buf, guint *pos, gchar **key, guint *keylen, gchar **value, guint *valuelen) {
+	const unsigned char *data = (const unsigned char*) buf->data;
 	guint32 klen, vlen;
 	guint p = *pos, len = buf->len;
 
@@ -365,10 +409,10 @@ static gboolean read_key_value(fastcgi_connection *fcon, GString *buf, guint *po
 		return FALSE;
 	}
 	if (len - p < klen + vlen) return FALSE;
-	*key = &buf->str[p];
+	*key = (gchar*) &buf->data[p];
 	*keylen = klen;
 	p += klen;
-	*value = &buf->str[p];
+	*value = (gchar*) &buf->data[p];
 	*valuelen = vlen;
 	p += vlen;
 	*pos = p;
@@ -378,7 +422,7 @@ static gboolean read_key_value(fastcgi_connection *fcon, GString *buf, guint *po
 static void parse_params(const fastcgi_callbacks *fcbs, fastcgi_connection *fcon) {
 	if (!fcon->current_header.contentLength) {
 		fcbs->cb_new_request(fcon);
-		g_string_truncate(fcon->parambuf, 0);
+		g_byte_array_set_size(fcon->parambuf, 0);
 	} else {
 		guint pos = 0, keylen = 0, valuelen = 0;
 		gchar *key = NULL, *value = NULL;
@@ -391,21 +435,21 @@ static void parse_params(const fastcgi_callbacks *fcbs, fastcgi_connection *fcon
 			g_ptr_array_add(fcon->environ, envvar);
 		}
 		if (!fcon->closing)
-			g_string_erase(fcon->parambuf, 0, pos);
+			g_byte_array_remove_range(fcon->parambuf, 0, pos);
 	}
 }
 
 static void parse_get_values(fastcgi_connection *fcon) {
 	/* just send the request back and don't insert results */
-	GString *tmp = g_string_sized_new(0);
-	stream_send_string(&fcon->write_queue, FCGI_GET_VALUES_RESULT, 0, fcon->buffer);
+	GByteArray *tmp = g_byte_array_sized_new(0);
+	stream_send_bytearray(&fcon->write_queue, FCGI_GET_VALUES_RESULT, 0, fcon->buffer);
 	*fcon->buffer = *tmp;
 	/* TODO: provide get-values result */
 }
 
 static void read_queue(fastcgi_connection *fcon) {
 	gssize res;
-	GString *buf;
+	GByteArray *buf;
 	const fastcgi_callbacks *fcbs = fcon->fsrv->callbacks;
 
 	for (;;) {
@@ -427,7 +471,7 @@ static void read_queue(fastcgi_connection *fcon) {
 			fcon->content_remaining = fcon->current_header.contentLength;
 			fcon->padding_remaining = fcon->current_header.paddingLength;
 			fcon->first = TRUE;
-			g_string_truncate(fcon->buffer, 0);
+			g_byte_array_set_size(fcon->buffer, 0);
 
 			if (fcon->current_header.version != FCGI_VERSION_1) {
 				fastcgi_connection_close(fcon);
@@ -438,18 +482,12 @@ static void read_queue(fastcgi_connection *fcon) {
 		if (fcon->current_header.type != FCGI_BEGIN_REQUEST &&
 		    (0 != fcon->current_header.requestID) && fcon->current_header.requestID != fcon->requestID) {
 		    /* ignore packet data */
+			if (0 != fcon->content_remaining + fcon->padding_remaining) {
+				if (NULL == (buf = read_content(fcon))) goto handle_error;
+				g_byte_array_free(buf, TRUE);
+			}
 			if (0 == fcon->content_remaining + fcon->padding_remaining) {
 				fcon->headerbuf_used = 0;
-			} else {
-				if (NULL == (buf = read_chunk(fcon, fcon->content_remaining + fcon->padding_remaining))) goto handle_error;
-				if (buf->len >= fcon->content_remaining) {
-					fcon->padding_remaining -= buf->len - fcon->content_remaining;
-					fcon->content_remaining = 0;
-					if (0 == fcon->padding_remaining) fcon->headerbuf_used = 0;
-				} else {
-					fcon->content_remaining -= buf->len;
-				}
-				g_string_free(buf, TRUE);
 			}
 			continue;
 		}
@@ -464,11 +502,11 @@ static void read_queue(fastcgi_connection *fcon) {
 					if (fcon->requestID) {
 						stream_send_end_request(&fcon->write_queue, fcon->current_header.requestID, 0, FCGI_CANT_MPX_CONN);
 					} else {
-						unsigned char *data = (unsigned char*) fcon->buffer->str;
+						unsigned char *data = (unsigned char*) fcon->buffer->data;
 						fcon->requestID = fcon->current_header.requestID;
 						fcon->role = (data[0] << 8) | (data[1]);
 						fcon->flags = data[2];
-						g_string_truncate(fcon->parambuf, 0);
+						g_byte_array_set_size(fcon->parambuf, 0);
 					}
 				}
 				break;
@@ -487,12 +525,11 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (0 == fcon->current_header.requestID) goto error;
 				buf = NULL;
 				if (0 != fcon->content_remaining &&
-				    NULL == (buf = read_chunk(fcon, fcon->content_remaining))) goto handle_error;
-				if (buf) fcon->content_remaining -= buf->len;
+				    NULL == (buf = read_content(fcon))) goto handle_error;
 				if (fcbs->cb_received_stdin) {
 					fcbs->cb_received_stdin(fcon, buf);
 				} else {
-					g_string_free(buf, TRUE);
+					g_byte_array_free(buf, TRUE);
 				}
 				break;
 			case FCGI_STDOUT:
@@ -503,12 +540,11 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (0 == fcon->current_header.requestID) goto error;
 				buf = NULL;
 				if (0 != fcon->content_remaining &&
-				    NULL == (buf = read_chunk(fcon, fcon->content_remaining))) goto handle_error;
-				if (buf) fcon->content_remaining -= buf->len;
+				    NULL == (buf = read_content(fcon))) goto handle_error;
 				if (fcbs->cb_received_data) {
 					fcbs->cb_received_data(fcon, buf);
 				} else {
-					g_string_free(buf, TRUE);
+					g_byte_array_free(buf, TRUE);
 				}
 				break;
 			case FCGI_GET_VALUES:
@@ -537,7 +573,7 @@ static void read_queue(fastcgi_connection *fcon) {
 				if (0 == fcon->padding_remaining) {
 					fcon->headerbuf_used = 0;
 				}
-				g_string_free(buf, TRUE);
+				g_byte_array_free(buf, TRUE);
 			}
 		}
 
@@ -585,8 +621,8 @@ static fastcgi_connection *fastcgi_connecion_create(fastcgi_server *fsrv, gint f
 	fcon->fsrv = fsrv;
 	fcon->fcon_id = id;
 
-	fcon->buffer = g_string_sized_new(0);
-	fcon->parambuf = g_string_sized_new(0);
+	fcon->buffer = g_byte_array_sized_new(0);
+	fcon->parambuf = g_byte_array_sized_new(0);
 	fcon->environ = g_ptr_array_new();
 
 	fcon->fd = fd;
@@ -610,8 +646,8 @@ static void fastcgi_connection_free(fastcgi_connection *fcon) {
 	fastcgi_queue_clear(&fcon->write_queue);
 	fastcgi_connection_environ_clear(fcon);
 	g_ptr_array_free(fcon->environ, TRUE);
-	g_string_free(fcon->buffer, TRUE);
-	g_string_free(fcon->parambuf, TRUE);
+	g_byte_array_free(fcon->buffer, TRUE);
+	g_byte_array_free(fcon->parambuf, TRUE);
 
 	g_slice_free(fastcgi_connection, fcon);
 }
@@ -626,8 +662,8 @@ void fastcgi_connection_close(fastcgi_connection *fcon) {
 
 	fastcgi_queue_clear(&fcon->write_queue);
 
-	g_string_truncate(fcon->buffer, 0);
-	g_string_truncate(fcon->parambuf, 0);
+	g_byte_array_set_size(fcon->buffer, 0);
+	g_byte_array_set_size(fcon->parambuf, 0);
 	fastcgi_connection_environ_clear(fcon);
 
 	ev_prepare_start(fcon->fsrv->loop, &fcon->fsrv->closing_watcher);
@@ -791,6 +827,26 @@ void fastcgi_send_err(fastcgi_connection *fcon, GString *data) {
 		stream_send_fcgi_record(&fcon->write_queue, FCGI_STDERR, fcon->requestID, 0);
 	} else {
 		stream_send_string(&fcon->write_queue, FCGI_STDERR, fcon->requestID, data);
+	}
+	if (!had_data) write_queue(fcon);
+}
+
+void fastcgi_send_out_bytearray(fastcgi_connection *fcon, GByteArray *data) {
+	gboolean had_data = (fcon->write_queue.length > 0);
+	if (!data) {
+		stream_send_fcgi_record(&fcon->write_queue, FCGI_STDOUT, fcon->requestID, 0);
+	} else {
+		stream_send_bytearray(&fcon->write_queue, FCGI_STDOUT, fcon->requestID, data);
+	}
+	if (!had_data) write_queue(fcon);
+}
+
+void fastcgi_send_err_bytearray(fastcgi_connection *fcon, GByteArray *data) {
+	gboolean had_data = (fcon->write_queue.length > 0);
+	if (!data) {
+		stream_send_fcgi_record(&fcon->write_queue, FCGI_STDERR, fcon->requestID, 0);
+	} else {
+		stream_send_bytearray(&fcon->write_queue, FCGI_STDERR, fcon->requestID, data);
 	}
 	if (!had_data) write_queue(fcon);
 }
