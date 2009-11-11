@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <string.h>
 #include <stropts.h>
 #include <sys/stat.h>
 
@@ -337,6 +338,17 @@ static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 		move2fd(pipes_from[1], 1);
 		move2fd(pipes_err[1], 2);
 
+		/* try changing the directory. don't care about memleaks, execve() coming soon :) */
+		{
+			char *dir = strdup(path), *sep;
+			if (NULL == (sep = strrchr(path, '/'))) {
+				chdir("/");
+			} else {
+				*sep = '\0';
+				chdir(dir);
+			}
+		}
+
 		g_ptr_array_add(enva, NULL);
 		newenv = (char**) g_ptr_array_free(enva, FALSE);
 		execve(path, args, newenv);
@@ -526,6 +538,8 @@ static void sigint_cb(struct ev_loop *loop, struct ev_signal *w, int revents) {
 int main(int argc, char **argv) {
 	struct ev_loop *loop;
 	fcgi_cgi_server* srv;
+	UNUSED(argc);
+	UNUSED(argv);
 
 	loop = ev_default_loop(0);
 	srv = fcgi_cgi_server_create(loop, 0);
