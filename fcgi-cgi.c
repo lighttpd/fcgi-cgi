@@ -477,6 +477,8 @@ static void fcgi_cgi_reset_connection(fastcgi_connection *fcon) {
 		fcgi_cgi_child_free(cld);
 	} else {
 		fcgi_cgi_child_close_write(cld);
+		if (-1 != cld->pipe_in) ev_io_start(cld->srv->loop, &cld->pipe_in_watcher);
+		if (-1 != cld->pipe_err) ev_io_start(cld->srv->loop, &cld->pipe_err_watcher);
 		cld->aborted_id = cld->srv->aborted_pending_childs->len;
 		g_ptr_array_add(cld->srv->aborted_pending_childs, cld);
 	}
