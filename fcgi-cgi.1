@@ -1,0 +1,33 @@
+.TH fcgi-cgi 1 "May  7, 2010"
+.
+.SH NAME
+.
+fcgi-cgi \- a FastCGI application to run cgi applications
+.
+.SH OPTIONS
+.
+.TP 8
+.B \-c <number>
+Maximum number of connections (default 16)
+.TP 8
+.B \-v
+Shows version information and exits
+.
+.SH DESCRIPTION
+fcgi-cgi is a FastCGI application to run normal cgi applications. It doesn't
+make CGI applications faster, but it allows you to run them on a different
+host and with different user permissions (without the need for suexec).
+.P
+lighttpd2 won't have a mod_cgi, so you need this FastCGI wrapper to be
+able to execute standard cgi applications like mailman and cgit.
+.P
+nginx recommends something similar, they implemented the wrapper in Perl:
+http://wiki.nginx.org/NginxSimpleCGI
+.P
+For running you probably want spawn-fcgi (http://redmine.lighttpd.net/projects/spawn-fcgi)
+.SH EXAMPLE
+Example usage:
+
+spawn-fcgi -n -s /tmp/fastcgi-cgi.sock -u www-default -U www-data -- /usr/bin/fcgi-cgi
+.SH AUTHOR
+fcgi-cgi was written by Stefan Bühler.

@@ -23,6 +23,8 @@
 #define __STR(x) #x
 #define ERROR(...) g_printerr("fcgi-cgi.c:" G_STRINGIFY(__LINE__) ": " __VA_ARGS__)
 
+#define PACKAGE_DESC (PACKAGE_NAME " v" PACKAGE_VERSION " - forks and watches multiple instances of a program in the same environment")
+
 struct fcgi_cgi_server;
 typedef struct fcgi_cgi_server fcgi_cgi_server;
 
@@ -557,10 +559,25 @@ static const GOptionEntry entries[] = {
 };
 
 int main(int argc, char **argv) {
+	GOptionContext *context;
+	GError *error = NULL;
 	struct ev_loop *loop;
 	fcgi_cgi_server* srv;
-	UNUSED(argc);
-	UNUSED(argv);
+
+	context = g_option_context_new("<application> [app arguments]");
+	g_option_context_add_main_entries(context, entries, NULL);
+	g_option_context_set_summary(context, PACKAGE_DESC);
+
+	if (!g_option_context_parse (context, &argc, &argv, &error)) {
+		g_printerr("Option parsing failed: %s\n", error->message);
+		return -1;
+	}
+
+	if (opts.show_version) {
+		g_printerr(PACKAGE_DESC);
+		g_printerr("\nBuild-Date: " __DATE__ " " __TIME__ "\n");
+		return 0;
+	}
 
 	loop = ev_default_loop(0);
 	srv = fcgi_cgi_server_create(loop, 0, opts.maxconns);
