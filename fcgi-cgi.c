@@ -494,11 +494,11 @@ static const fastcgi_callbacks cgi_callbacks = {
 	/* cb_reset_connection: */ fcgi_cgi_reset_connection
 };
 
-static fcgi_cgi_server* fcgi_cgi_server_create(struct ev_loop *loop, int fd) {
+static fcgi_cgi_server* fcgi_cgi_server_create(struct ev_loop *loop, int fd, guint maxconns) {
 	fcgi_cgi_server* srv = g_slice_new0(fcgi_cgi_server);
 	srv->loop = loop;
 	srv->aborted_pending_childs = g_ptr_array_new();
-	srv->fsrv = fastcgi_server_create(loop, fd, &cgi_callbacks, 10);
+	srv->fsrv = fastcgi_server_create(loop, fd, &cgi_callbacks, maxconns);
 	srv->fsrv->data = srv;
 	return srv;
 }
@@ -539,6 +539,23 @@ static void sigint_cb(struct ev_loop *loop, struct ev_signal *w, int revents) {
 	}
 }
 
+typedef struct {
+	gint maxconns;
+
+	gboolean show_version;
+} options;
+
+static options opts = {
+	/* maxconns:*/ 16,
+	/* version: */ FALSE,
+};
+
+static const GOptionEntry entries[] = {
+	{ "max-connections", 'c', 0, G_OPTION_ARG_INT, &opts.maxconns, "Maximum number of connections (default 16)", "number" },
+	{ "version", 'v', 0, G_OPTION_ARG_NONE, &opts.show_version, "Show version", NULL },
+	{ NULL, 0, 0, 0, NULL, NULL, NULL }
+};
+
 int main(int argc, char **argv) {
 	struct ev_loop *loop;
 	fcgi_cgi_server* srv;
@@ -546,7 +563,7 @@ int main(int argc, char **argv) {
 	UNUSED(argv);
 
 	loop = ev_default_loop(0);
-	srv = fcgi_cgi_server_create(loop, 0);
+	srv = fcgi_cgi_server_create(loop, 0, opts.maxconns);
 
 	signal(SIGPIPE, SIG_IGN);
 	CATCH_SIGNAL(loop, sigint_cb, INT);

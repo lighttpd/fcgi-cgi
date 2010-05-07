@@ -690,11 +690,8 @@ static void fastcgi_server_fd_cb(struct ev_loop *loop, ev_io *w, int revents) {
 				/* we were stopped _after_ we had a connection */
 				return;
 			case EMFILE:
-				if (0 == fsrv->max_connections) {
-					fsrv->max_connections = fsrv->connections->len / 2;
-				} else {
-					fsrv->max_connections = fsrv->max_connections / 2;
-				}
+				fsrv->max_connections = fsrv->connections->len / 2;
+				if (fsrv->max_connections < 1) fsrv->max_connections = 1;
 				ERROR("dropped connection limit to %u as we got EMFILE\n", fsrv->max_connections);
 				ev_io_rem_events(loop, w, EV_READ);
 				return;
@@ -722,6 +719,7 @@ static void fastcgi_server_fd_cb(struct ev_loop *loop, ev_io *w, int revents) {
 
 static void fastcgi_cleanup_connections(fastcgi_server *fsrv) {
 	guint i;
+	gboolean closed_con;
 
 	for (i = 0; i < fsrv->connections->len; ) {
 		fastcgi_connection *fcon = g_ptr_array_index(fsrv->connections, i);
@@ -732,9 +730,14 @@ static void fastcgi_cleanup_connections(fastcgi_server *fsrv) {
 			g_ptr_array_set_size(fsrv->connections, l);
 			t_fcon->fcon_id = i;
 			fastcgi_connection_free(fcon);
+			closed_con = TRUE;
 		} else {
 			i++;
 		}
+	}
+
+	if (closed_con && fsrv->connections->len < fsrv->max_connections) {
+		ev_io_add_events(fsrv->loop, &fsrv->fd_watcher, EV_READ);
 	}
 }
 
