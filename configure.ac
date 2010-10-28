@@ -21,9 +21,9 @@ PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.16.0, [
 
 # lib ev
 AC_CHECK_HEADERS([ev.h], [], [AC_MSG_ERROR("ev.h not found")])
-AC_CHECK_LIB([ev], [ev_loop], [
+AC_CHECK_LIB([ev], [ev_time], [
 	LIBS="-lev ${LIBS}"
-	AC_DEFINE([HAVE_LIBEV], [1], [ev_loop in -lev])
+	AC_DEFINE([HAVE_LIBEV], [1], [ev_time in -lev])
 	], [AC_MSG_ERROR("libev not found")])
 
 # Checks for header files.
