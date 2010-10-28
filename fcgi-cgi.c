@@ -10,7 +10,6 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
-#include <stropts.h>
 #include <sys/stat.h>
 
 #define MAX_BUFFER_SIZE (64*1024)
