@@ -21,7 +21,7 @@ MACRO(ADD_TARGET_PROPERTIES _target _name _properties)
   SET_TARGET_PROPERTIES(${_target} PROPERTIES ${_name} "${_old_properties}${_properties}")
 ENDMACRO(ADD_TARGET_PROPERTIES)
 
-PROJECT(fcgi-cgi)
+PROJECT(fcgi-cgi C)
 SET(PACKAGE_VERSION 0.1.6)
 IF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 	SET(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel." FORCE)
