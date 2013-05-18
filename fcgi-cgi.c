@@ -259,6 +259,7 @@ static void fcgi_cgi_child_check_done(fcgi_cgi_child *cld) {
 	} else {
 		if (cld->pid == -1 && cld->pipe_out == -1 && cld->pipe_in == -1 && cld->pipe_err == -1) {
 			fastcgi_end_request(cld->fcon, cld->child_status, FCGI_REQUEST_COMPLETE);
+			fcgi_cgi_child_free(cld);
 		}
 	}
 }
