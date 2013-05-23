@@ -460,7 +460,11 @@ static void fcgi_cgi_received_stdin(fastcgi_connection *fcon, GByteArray *data) 
 		if (data) g_byte_array_free(data, TRUE);
 		return;
 	}
-	fastcgi_queue_append_bytearray(&cld->write_queue, data);
+	if (NULL != data) {
+		fastcgi_queue_append_bytearray(&cld->write_queue, data);
+	} else {
+		cld->write_queue.closed = TRUE;
+	}
 	write_queue(cld); /* if we don't call this we have to check the write-queue length */
 }
 
