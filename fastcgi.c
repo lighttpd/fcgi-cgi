@@ -801,6 +801,7 @@ void fastcgi_end_request(fastcgi_connection *fcon, gint32 appStatus, enum FCGI_P
 	if (0 == fcon->requestID) return;
 	stream_send_end_request(&fcon->write_queue, fcon->requestID, appStatus, status);
 	fcon->requestID = 0;
+	fastcgi_connection_environ_clear(fcon);
 	if (!had_data) write_queue(fcon);
 }
 
