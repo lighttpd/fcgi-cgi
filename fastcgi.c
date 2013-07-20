@@ -604,7 +604,31 @@ error:
 
 static void fastcgi_connection_fd_cb(struct ev_loop *loop, ev_io *w, int revents) {
 	fastcgi_connection *fcon = (fastcgi_connection*) w->data;
-	UNUSED(loop);
+
+	if (fcon->closing) {
+		char buf[1024];
+		ssize_t r;
+
+		r = read(fcon->fd, buf, sizeof(buf));
+		if (r > 0) return;
+
+		if (-1 == r) switch (errno) {
+		case EINTR:
+		case EAGAIN:
+	#if EWOULDBLOCK != EAGAIN
+		case EWOULDBLOCK:
+	#endif
+			return; /* try again later */
+		default:
+			break;
+		}
+
+		ev_io_stop(loop, w);
+		close(fcon->fd);
+		fcon->fd = -1;
+		ev_prepare_start(fcon->fsrv->loop, &fcon->fsrv->closing_watcher);
+		return;
+	}
 
 	if (revents & EV_READ) {
 		read_queue(fcon);
@@ -637,11 +661,6 @@ static fastcgi_connection *fastcgi_connecion_create(fastcgi_server *fsrv, gint f
 static void fastcgi_connection_free(fastcgi_connection *fcon) {
 	fcon->fsrv->callbacks->cb_reset_connection(fcon);
 
-	if (fcon->fd != -1) {
-		ev_io_stop(fcon->fsrv->loop, &fcon->fd_watcher);
-		close(fcon->fd);
-		fcon->fd = -1;
-	}
 
 	fastcgi_queue_clear(&fcon->write_queue);
 	fastcgi_connection_environ_clear(fcon);
@@ -655,9 +674,7 @@ static void fastcgi_connection_free(fastcgi_connection *fcon) {
 void fastcgi_connection_close(fastcgi_connection *fcon) {
 	fcon->closing = TRUE;
 	if (fcon->fd != -1) {
-		ev_io_stop(fcon->fsrv->loop, &fcon->fd_watcher);
-		close(fcon->fd);
-		fcon->fd = -1;
+		shutdown(fcon->fd, SHUT_WR);
 	}
 
 	fastcgi_queue_clear(&fcon->write_queue);
@@ -666,7 +683,9 @@ void fastcgi_connection_close(fastcgi_connection *fcon) {
 	g_byte_array_set_size(fcon->parambuf, 0);
 	fastcgi_connection_environ_clear(fcon);
 
-	ev_prepare_start(fcon->fsrv->loop, &fcon->fsrv->closing_watcher);
+	if (fcon->fd == -1) {
+		ev_prepare_start(fcon->fsrv->loop, &fcon->fsrv->closing_watcher);
+	}
 }
 
 static void fastcgi_server_fd_cb(struct ev_loop *loop, ev_io *w, int revents) {
@@ -723,7 +742,7 @@ static void fastcgi_cleanup_connections(fastcgi_server *fsrv) {
 
 	for (i = 0; i < fsrv->connections->len; ) {
 		fastcgi_connection *fcon = g_ptr_array_index(fsrv->connections, i);
-		if (fcon->closing) {
+		if (fcon->closing && -1 == fcon->fd) {
 			fastcgi_connection *t_fcon;
 			guint l = fsrv->connections->len-1;
 			t_fcon = g_ptr_array_index(fsrv->connections, i) = g_ptr_array_index(fsrv->connections, l);
