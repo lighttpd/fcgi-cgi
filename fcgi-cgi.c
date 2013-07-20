@@ -22,7 +22,7 @@
 #define __STR(x) #x
 #define ERROR(...) g_printerr("fcgi-cgi.c:" G_STRINGIFY(__LINE__) ": " __VA_ARGS__)
 
-#define PACKAGE_DESC (PACKAGE_NAME " v" PACKAGE_VERSION " - forks and watches multiple instances of a program in the same environment")
+#define PACKAGE_DESC (PACKAGE_NAME " v" PACKAGE_VERSION " - FastCGI application to run normal cgi applications")
 
 struct fcgi_cgi_server;
 typedef struct fcgi_cgi_server fcgi_cgi_server;
