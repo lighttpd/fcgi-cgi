@@ -311,6 +311,32 @@ static void fcgi_cgi_child_error(fcgi_cgi_child *cld) {
 	}
 }
 
+static void copy_env_var(GPtrArray *env, const char *name) {
+	guint i, namelen = strlen(name);
+	const char *value;
+
+	for (i = 0; i < env->len; ) {
+		const char *entry = g_ptr_array_index(env, i);
+		if (0 == strncmp(entry, name, namelen) && entry[namelen] == '=') {
+			g_ptr_array_remove_index_fast(env, i);
+			g_free((char*) entry);
+		} else {
+			++i;
+		}
+	}
+
+	value = getenv(name);
+	if (NULL != value) {
+		guint valuelen = strlen(value);
+		char *entry = g_malloc(namelen + valuelen + 2);
+		memcpy(entry, name, namelen);
+		entry[namelen] = '=';
+		memcpy(entry + namelen + 1, value, valuelen);
+		entry[namelen+valuelen+1] = 0;
+		g_ptr_array_add(env, entry);
+	}
+}
+
 static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 	int pipes_to[2] = {-1, -1}, pipes_from[2] = {-1, -1}, pipes_err[2] = {-1, -1};
 	pid_t pid;
@@ -353,6 +379,7 @@ static void fcgi_cgi_child_start(fcgi_cgi_child *cld, const gchar *path) {
 			}
 		}
 
+		copy_env_var(enva, "PATH");
 		g_ptr_array_add(enva, NULL);
 		newenv = (char**) g_ptr_array_free(enva, FALSE);
 		execve(path, args, newenv);
