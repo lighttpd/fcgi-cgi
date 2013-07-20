@@ -2,49 +2,24 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.6.0 FATAL_ERROR)
 
 cmake_policy(VERSION 2.6.0)
 
+SET(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
 INCLUDE(CheckIncludeFiles)
 INCLUDE(CheckLibraryExists)
 INCLUDE(FindPkgConfig)
+INCLUDE(AddTargetProperties)
 
-MACRO(ADD_TARGET_PROPERTIES _target _name _properties)
-  SET(_properties ${ARGV})
-  LIST(REMOVE_AT _properties 0)
-  LIST(REMOVE_AT _properties 0)
-  GET_TARGET_PROPERTY(_old_properties ${_target} ${_name})
-  #MESSAGE("adding property to ${_target} ${_name}: ${_properties}")
-  IF(NOT _old_properties)
-    # in case it's NOTFOUND
-    SET(_old_properties)
-  ELSE(NOT _old_properties)
-    SET(_old_properties "${_old_properties} ")
-  ENDIF(NOT _old_properties)
-  SET_TARGET_PROPERTIES(${_target} PROPERTIES ${_name} "${_old_properties}${_properties}")
-ENDMACRO(ADD_TARGET_PROPERTIES)
 
 PROJECT(fcgi-cgi C)
 SET(PACKAGE_VERSION 0.2.1)
+
 IF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 	SET(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel." FORCE)
 ENDIF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 
 
 # libev
-CHECK_INCLUDE_FILES(ev.h HAVE_EV_H)
-IF(HAVE_EV_H)
-	CHECK_LIBRARY_EXISTS(ev ev_time "" HAVE_LIBEV)
-	IF(HAVE_LIBEV)
-		SET(EV_LIBRARIES ev)
-		SET(EV_STATIC_LIBRARIES ev;m)
-		CHECK_LIBRARY_EXISTS(rt clock_gettime "" NEED_RT)
-		IF(NEED_RT)
-			SET(EV_STATIC_LIBRARIES ${EV_STATIC_LIBRARIES} rt)
-		ENDIF(NEED_RT)
-	ELSE(HAVE_LIBEV)
-		MESSAGE(FATAL_ERROR "Couldn't find lib ev")
-	ENDIF(HAVE_LIBEV)
-ELSE(HAVE_EV_H)
-	MESSAGE(FATAL_ERROR "Couldn't find <ev.h>")
-ENDIF(HAVE_EV_H)
+FIND_PACKAGE(LibEV REQUIRED)
 
 # GLIB 2
 pkg_check_modules (GLIB2 REQUIRED glib-2.0)
@@ -64,12 +39,12 @@ add_executable(fcgi-cgi ${MAIN_SOURCE})
 ADD_TARGET_PROPERTIES(fcgi-cgi COMPILE_FLAGS "-std=gnu99 -Wall -g -Wshadow -W -pedantic -fPIC -D_GNU_SOURCE")
 
 # libev
-TARGET_LINK_LIBRARIES(fcgi-cgi "${EV_LIBRARIES}")
+TARGET_LINK_LIBRARIES(fcgi-cgi "${LIBEV_LDFLAGS}")
 
 # GLIB 2
 TARGET_LINK_LIBRARIES(fcgi-cgi "${GLIB2_LIBRARIES}")
 ADD_TARGET_PROPERTIES(fcgi-cgi LINK_FLAGS "${GLIB2_LDFLAGS}")
-ADD_TARGET_PROPERTIES(fcgi-cgi COMPILE_FLAGS "${GLIB2_CFLAGS_OTHER}")
+ADD_TARGET_PROPERTIES(fcgi-cgi COMPILE_FLAGS "${GLIB2_CFLAGS_OTHER}" "${LIBEV_CFLAGS}")
 
 INSTALL(TARGETS fcgi-cgi DESTINATION bin)
 
