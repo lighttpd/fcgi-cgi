@@ -11,7 +11,7 @@ INCLUDE(AddTargetProperties)
 
 
 PROJECT(fcgi-cgi C)
-SET(PACKAGE_VERSION 0.2.1)
+SET(PACKAGE_VERSION 0.2.2)
 
 IF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 	SET(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel." FORCE)
