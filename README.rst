@@ -11,17 +11,17 @@ host and with different user permissions (without the need for suexec).
 lighttpd2 won't have a mod_cgi, so you need this FastCGI wrapper to be able
 to execute standard cgi applications like mailman and cgit.
 
-fcgi-cgi is released under the `MIT license <http://git.lighttpd.net/fcgi-cgi.cgi/tree/COPYING>`_
+fcgi-cgi is released under the `MIT license <http://git.lighttpd.net/fcgi-cgi.git/tree/COPYING>`_
 
 Usage
 -----
 
-Examples for spawning a fcg-cgi instance with daemontools or runit::
+Examples for spawning a fcgi-cgi instance with daemontools or runit::
 
   #!/bin/sh
   # run script
 
-  exec spawn-fcgi -n -s /tmp/fastcgi-cgi.sock -u www-default -U www-data -- /usr/bin/fcgi-cgi
+  exec spawn-fcgi -n -s /var/run/fastcgi-cgi.sock -u www-default -U www-data -- /usr/bin/fcgi-cgi
 
 
 Build dependencies
