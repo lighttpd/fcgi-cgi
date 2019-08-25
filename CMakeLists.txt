@@ -1,6 +1,6 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6.0 FATAL_ERROR)
 
-cmake_policy(VERSION 2.6.0)
+CMAKE_POLICY(VERSION 2.6.0)
 
 SET(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
@@ -17,6 +17,26 @@ IF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 	SET(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Choose the type of build, options are: None(CMAKE_CXX_FLAGS or CMAKE_C_FLAGS used) Debug Release RelWithDebInfo MinSizeRel." FORCE)
 ENDIF("${CMAKE_BUILD_TYPE}" STREQUAL "")
 
+OPTION(BUILD_EXTRA_WARNINGS "extra warnings")
+
+# default to ON
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "Default value for ``POSITION_INDEPENDENT_CODE`` of targets.")
+
+# handle BUILD_EXTRA_WARNINGS option
+IF(BUILD_EXTRA_WARNINGS)
+	SET(WARN_CFLAGS "-g -O2 -g2 -Wall -Wmissing-declarations -Wdeclaration-after-statement -Wcast-align -Wsign-compare -Wnested-externs -Wpointer-arith -Wmissing-prototypes -Wshadow -Wno-pointer-sign -Wformat-security")
+	SET(WARN_LDFLAGS "-g -O2 -g2 -Wall -Wl,--as-needed -Wl,--no-undefined")
+ELSE(BUILD_EXTRA_WARNINGS)
+	SET(WARN_CFLAGS "")
+	SET(WARN_LDFLAGS "")
+ENDIF(BUILD_EXTRA_WARNINGS)
+
+IF(CMAKE_COMPILER_IS_GNUCC)
+	SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu99 -Wall -g -Wshadow -W -pedantic")
+	SET(CMAKE_C_FLAGS_RELEASE        "${CMAKE_C_FLAGS_RELEASE}     -O2")
+	SET(CMAKE_C_FLAGS_DEBUG          "${CMAKE_C_FLAGS_DEBUG}       -O0")
+	SET(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_WITHDEBINFO} -O2")
+ENDIF(CMAKE_COMPILER_IS_GNUCC)
 
 # libev
 FIND_PACKAGE(LibEV REQUIRED)
@@ -33,9 +53,10 @@ CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/config.h.cmake ${CMAKE_BINARY_DIR}/co
 ADD_DEFINITIONS(-DHAVE_CONFIG_H)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(fcgi-cgi ${MAIN_SOURCE})
+ADD_EXECUTABLE(fcgi-cgi ${MAIN_SOURCE})
 
-ADD_TARGET_PROPERTIES(fcgi-cgi COMPILE_FLAGS "-std=gnu99 -Wall -g -Wshadow -W -pedantic -fPIC")
+TARGET_LINK_LIBRARIES(fcgi-cgi ${WARN_LDFLAGS})
+ADD_TARGET_PROPERTIES(fcgi-cgi COMPILE_FLAGS ${WARN_CFLAGS})
 
 # libev
 TARGET_LINK_LIBRARIES(fcgi-cgi ${LIBEV_LDFLAGS})
